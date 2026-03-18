@@ -1,0 +1,4 @@
+interface:
+  display_name: "n8n Workflow Builder"
+  short_description: "Build importable n8n workflow JSON"
+  default_prompt: "Use $n8n-workflow-builder to turn my logic chain and requirements into an optimized, importable n8n workflow JSON."
