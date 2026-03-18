@@ -107,3 +107,5 @@ python .\scripts\validate_workflow.py .\your-workflow.json
 
 - 商业顾问与行业分析报告示例: [examples/business-consultant-industry-report.json](./examples/business-consultant-industry-report.json)
 - 示例说明: [docs/business-consultant-example.zh-CN.md](./docs/business-consultant-example.zh-CN.md)
+- OpenAI + 向量知识库商业顾问示例: [examples/business-consultant-openai-vector-kb.json](./examples/business-consultant-openai-vector-kb.json)
+- OpenAI 示例说明: [docs/openai-vector-kb-example.zh-CN.md](./docs/openai-vector-kb-example.zh-CN.md)

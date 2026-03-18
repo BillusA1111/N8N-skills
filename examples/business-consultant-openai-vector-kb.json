@@ -1,0 +1,597 @@
+{
+  "name": "Business Consultant OpenAI Vector KB",
+  "nodes": [
+    {
+      "id": "webhook-intake",
+      "name": "Webhook Intake",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        240,
+        300
+      ],
+      "parameters": {
+        "path": "business-consultant/openai-vector-kb",
+        "httpMethod": "POST",
+        "responseMode": "responseNode",
+        "options": {}
+      }
+    },
+    {
+      "id": "normalize-request",
+      "name": "Normalize Request",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        500,
+        300
+      ],
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "request-id",
+              "name": "requestId",
+              "value": "={{$json.headers['x-request-id'] || $json.body.requestId || $execution.id}}",
+              "type": "string"
+            },
+            {
+              "id": "query",
+              "name": "query",
+              "value": "={{$json.body.query || ''}}",
+              "type": "string"
+            },
+            {
+              "id": "industry",
+              "name": "industry",
+              "value": "={{$json.body.industry || 'general'}}",
+              "type": "string"
+            },
+            {
+              "id": "geography",
+              "name": "geography",
+              "value": "={{$json.body.geography || 'global'}}",
+              "type": "string"
+            },
+            {
+              "id": "report-type",
+              "name": "reportType",
+              "value": "={{$json.body.reportType || 'industry-report'}}",
+              "type": "string"
+            },
+            {
+              "id": "response-language",
+              "name": "responseLanguage",
+              "value": "={{$json.body.responseLanguage || 'zh-CN'}}",
+              "type": "string"
+            },
+            {
+              "id": "model",
+              "name": "model",
+              "value": "={{$json.body.model || $env.OPENAI_RESPONSES_MODEL || 'gpt-4.1'}}",
+              "type": "string"
+            },
+            {
+              "id": "vector-store-ids",
+              "name": "vectorStoreIdsRaw",
+              "value": "={{Array.isArray($json.body.vectorStoreIds) ? $json.body.vectorStoreIds.join(',') : ($json.body.vectorStoreIds || $env.OPENAI_VECTOR_STORE_IDS || '')}}",
+              "type": "string"
+            },
+            {
+              "id": "max-sources",
+              "name": "maxSources",
+              "value": "={{$json.body.maxSources ?? 8}}",
+              "type": "number"
+            },
+            {
+              "id": "knowledge-categories",
+              "name": "knowledgeCategoriesRaw",
+              "value": "={{Array.isArray($json.body.knowledgeCategories) ? $json.body.knowledgeCategories.join(',') : ($json.body.knowledgeCategories || '')}}",
+              "type": "string"
+            },
+            {
+              "id": "min-accepted-results",
+              "name": "minAcceptedResults",
+              "value": "={{$json.body.minAcceptedResults ?? 2}}",
+              "type": "number"
+            },
+            {
+              "id": "min-search-score",
+              "name": "minSearchScore",
+              "value": "={{$json.body.minSearchScore ?? 0.72}}",
+              "type": "number"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "validate-request",
+      "name": "Validate Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        760,
+        300
+      ],
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "const input = $input.first().json;\nconst errors = [];\nconst vectorStoreIds = String(input.vectorStoreIdsRaw || '').split(',').map((item) => item.trim()).filter(Boolean);\nconst knowledgeCategories = String(input.knowledgeCategoriesRaw || '').split(',').map((item) => item.trim()).filter(Boolean);\nif (!input.query || String(input.query).trim().length < 8) {\n  errors.push('query must be at least 8 characters');\n}\nif (!vectorStoreIds.length) {\n  errors.push('at least one vector store id is required');\n}\nif (Number(input.maxSources) < 1 || Number(input.maxSources) > 20) {\n  errors.push('maxSources must be between 1 and 20');\n}\nif (Number(input.minAcceptedResults) < 1 || Number(input.minAcceptedResults) > Number(input.maxSources)) {\n  errors.push('minAcceptedResults must be between 1 and maxSources');\n}\nif (Number(input.minSearchScore) < 0 || Number(input.minSearchScore) > 1) {\n  errors.push('minSearchScore must be between 0 and 1');\n}\nreturn [{ json: { ...input, vectorStoreIds, knowledgeCategories, isValid: errors.length === 0, validationErrors: errors } }];"
+      }
+    },
+    {
+      "id": "is-request-valid",
+      "name": "Is Request Valid?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1020,
+        300
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "request-valid-condition",
+              "leftValue": "={{$json.isValid}}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "build-validation-error-response",
+      "name": "Build Validation Error Response",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1280,
+        460
+      ],
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "status",
+              "name": "status",
+              "value": "invalid_request",
+              "type": "string"
+            },
+            {
+              "id": "request-id",
+              "name": "requestId",
+              "value": "={{$('Validate Request').first().json.requestId}}",
+              "type": "string"
+            },
+            {
+              "id": "errors",
+              "name": "errors",
+              "value": "={{$('Validate Request').first().json.validationErrors}}",
+              "type": "array"
+            },
+            {
+              "id": "message",
+              "name": "message",
+              "value": "Provide a clear business question and at least one OpenAI vector store id.",
+              "type": "string"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "respond-validation-error",
+      "name": "Respond Validation Error",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1540,
+        460
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{$json}}",
+        "options": {
+          "responseCode": 400
+        }
+      }
+    },
+    {
+      "id": "openai-grounded-report",
+      "name": "OpenAI Grounded Report",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1280,
+        220
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/responses",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{$env.OPENAI_API_KEY}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "X-Client-Request-Id",
+              "value": "={{$json.requestId}}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{(() => { const tool = { type: 'file_search', vector_store_ids: $json.vectorStoreIds, max_num_results: Number($json.maxSources) }; if (Array.isArray($json.knowledgeCategories) && $json.knowledgeCategories.length) { tool.filters = { type: 'in', key: 'category', value: $json.knowledgeCategories }; } return { model: $json.model, store: false, instructions: 'You are a conservative business consulting analyst. Use only information grounded in file_search results from the provided vector stores. Do not invent market numbers, company facts, or trends. If evidence is weak or incomplete, explicitly say so. Return JSON with keys: executive_summary, market_overview, opportunity_analysis, risk_analysis, recommendations, citations, limitations.', input: `Question: ${$json.query}\\nIndustry: ${$json.industry}\\nGeography: ${$json.geography}\\nReport Type: ${$json.reportType}\\nResponse Language: ${$json.responseLanguage}\\nUse only retrieved knowledge base evidence.`, tools: [tool], include: ['file_search_call.results'], text: { format: { type: 'json_object' } } }; })()}}",
+        "options": {
+          "timeout": 45000
+        }
+      }
+    },
+    {
+      "id": "parse-openai-response",
+      "name": "Parse OpenAI Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1540,
+        220
+      ],
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "const request = $('Validate Request').first().json;\nconst payload = $input.first().json;\nconst output = Array.isArray(payload.output) ? payload.output : [];\nconst fileSearchCalls = output.filter((item) => item.type === 'file_search_call');\nconst searchResults = fileSearchCalls.flatMap((item) => Array.isArray(item.results) ? item.results : []);\nconst outputTexts = output\n  .filter((item) => item.type === 'message')\n  .flatMap((item) => Array.isArray(item.content) ? item.content : [])\n  .filter((item) => item.type === 'output_text');\nlet report = {};\nconst firstText = payload.output_text || outputTexts[0]?.text || '';\nif (firstText) {\n  try {\n    report = JSON.parse(firstText);\n  } catch (error) {\n    report = { rawText: firstText };\n  }\n}\nconst citations = outputTexts.flatMap((item) => Array.isArray(item.annotations) ? item.annotations : []).map((annotation) => ({ file_id: annotation.file_id || '', filename: annotation.filename || '', index: annotation.index ?? null, type: annotation.type || '' }));\nreturn [{ json: { requestId: request.requestId, query: request.query, industry: request.industry, geography: request.geography, reportType: request.reportType, responseLanguage: request.responseLanguage, model: request.model, vectorStoreIds: request.vectorStoreIds, knowledgeCategories: request.knowledgeCategories, maxSources: request.maxSources, minAcceptedResults: request.minAcceptedResults, minSearchScore: request.minSearchScore, report, searchResults, citations, rawResponseId: payload.id || '' } }];"
+      }
+    },
+    {
+      "id": "score-retrieval-quality",
+      "name": "Score Retrieval Quality",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1800,
+        220
+      ],
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "const input = $input.first().json;\nconst results = Array.isArray(input.searchResults) ? input.searchResults : [];\nconst accepted = results.filter((result) => Number(result.score ?? 0) >= Number(input.minSearchScore));\nconst uniqueFiles = [...new Set(accepted.map((result) => result.file_id || result.filename || '').filter(Boolean))];\nconst averageScore = accepted.length ? accepted.reduce((sum, result) => sum + Number(result.score || 0), 0) / accepted.length : 0;\nreturn [{ json: { ...input, grounding: { totalResults: results.length, acceptedResults: accepted.length, uniqueFiles: uniqueFiles.length, averageScore: Number(averageScore.toFixed(4)) }, acceptedResultsList: accepted, groundingSufficient: accepted.length >= Number(input.minAcceptedResults) } }];"
+      }
+    },
+    {
+      "id": "is-grounding-sufficient",
+      "name": "Is Grounding Sufficient?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        2060,
+        220
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "grounding-condition",
+              "leftValue": "={{$json.groundingSufficient}}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "build-low-confidence-response",
+      "name": "Build Low Confidence Response",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        2320,
+        380
+      ],
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "status",
+              "name": "status",
+              "value": "needs_human_review",
+              "type": "string"
+            },
+            {
+              "id": "request-id",
+              "name": "requestId",
+              "value": "={{$('Score Retrieval Quality').first().json.requestId}}",
+              "type": "string"
+            },
+            {
+              "id": "message",
+              "name": "message",
+              "value": "Knowledge grounding is below threshold. Add higher-quality documents or lower the gating threshold after review.",
+              "type": "string"
+            },
+            {
+              "id": "grounding",
+              "name": "grounding",
+              "value": "={{$('Score Retrieval Quality').first().json.grounding}}",
+              "type": "object"
+            },
+            {
+              "id": "search-results",
+              "name": "searchResults",
+              "value": "={{$('Score Retrieval Quality').first().json.acceptedResultsList}}",
+              "type": "array"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "respond-low-confidence",
+      "name": "Respond Low Confidence",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        2580,
+        380
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{$json}}",
+        "options": {
+          "responseCode": 202
+        }
+      }
+    },
+    {
+      "id": "build-success-response",
+      "name": "Build Success Response",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        2320,
+        120
+      ],
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "status",
+              "name": "status",
+              "value": "ok",
+              "type": "string"
+            },
+            {
+              "id": "request-id",
+              "name": "requestId",
+              "value": "={{$('Score Retrieval Quality').first().json.requestId}}",
+              "type": "string"
+            },
+            {
+              "id": "model",
+              "name": "model",
+              "value": "={{$('Score Retrieval Quality').first().json.model}}",
+              "type": "string"
+            },
+            {
+              "id": "grounding",
+              "name": "grounding",
+              "value": "={{$('Score Retrieval Quality').first().json.grounding}}",
+              "type": "object"
+            },
+            {
+              "id": "report",
+              "name": "report",
+              "value": "={{$('Score Retrieval Quality').first().json.report}}",
+              "type": "object"
+            },
+            {
+              "id": "citations",
+              "name": "citations",
+              "value": "={{$('Score Retrieval Quality').first().json.citations}}",
+              "type": "array"
+            },
+            {
+              "id": "search-results",
+              "name": "searchResults",
+              "value": "={{$('Score Retrieval Quality').first().json.acceptedResultsList}}",
+              "type": "array"
+            },
+            {
+              "id": "response-id",
+              "name": "openaiResponseId",
+              "value": "={{$('Score Retrieval Quality').first().json.rawResponseId}}",
+              "type": "string"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "respond-success",
+      "name": "Respond Success",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        2580,
+        120
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{$json}}",
+        "options": {
+          "responseCode": 200
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Webhook Intake": {
+      "main": [
+        [
+          {
+            "node": "Normalize Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Request": {
+      "main": [
+        [
+          {
+            "node": "Validate Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Request": {
+      "main": [
+        [
+          {
+            "node": "Is Request Valid?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Request Valid?": {
+      "main": [
+        [
+          {
+            "node": "OpenAI Grounded Report",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Validation Error Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Validation Error Response": {
+      "main": [
+        [
+          {
+            "node": "Respond Validation Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Grounded Report": {
+      "main": [
+        [
+          {
+            "node": "Parse OpenAI Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse OpenAI Response": {
+      "main": [
+        [
+          {
+            "node": "Score Retrieval Quality",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Score Retrieval Quality": {
+      "main": [
+        [
+          {
+            "node": "Is Grounding Sufficient?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Grounding Sufficient?": {
+      "main": [
+        [
+          {
+            "node": "Build Success Response",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Low Confidence Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Low Confidence Response": {
+      "main": [
+        [
+          {
+            "node": "Respond Low Confidence",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Success Response": {
+      "main": [
+        [
+          {
+            "node": "Respond Success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {}
+}
