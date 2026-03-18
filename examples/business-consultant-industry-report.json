@@ -1,0 +1,573 @@
+{
+  "name": "Business Consultant Industry Report",
+  "nodes": [
+    {
+      "id": "webhook-intake",
+      "name": "Webhook Intake",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        240,
+        300
+      ],
+      "parameters": {
+        "path": "business-consultant/report",
+        "httpMethod": "POST",
+        "responseMode": "responseNode",
+        "options": {}
+      }
+    },
+    {
+      "id": "normalize-request",
+      "name": "Normalize Request",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        500,
+        300
+      ],
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "request-id",
+              "name": "requestId",
+              "value": "={{$json.headers['x-request-id'] || $json.query.requestId || $json.body.requestId || $execution.id}}",
+              "type": "string"
+            },
+            {
+              "id": "received-at",
+              "name": "receivedAt",
+              "value": "={{$now}}",
+              "type": "string"
+            },
+            {
+              "id": "query",
+              "name": "query",
+              "value": "={{$json.body.query || $json.query.query || ''}}",
+              "type": "string"
+            },
+            {
+              "id": "industry",
+              "name": "industry",
+              "value": "={{$json.body.industry || $json.query.industry || 'general'}}",
+              "type": "string"
+            },
+            {
+              "id": "geography",
+              "name": "geography",
+              "value": "={{$json.body.geography || $json.query.geography || 'global'}}",
+              "type": "string"
+            },
+            {
+              "id": "report-type",
+              "name": "reportType",
+              "value": "={{$json.body.reportType || $json.query.reportType || 'industry-report'}}",
+              "type": "string"
+            },
+            {
+              "id": "use-kb",
+              "name": "useKnowledgeBase",
+              "value": "={{$json.body.useKnowledgeBase ?? true}}",
+              "type": "boolean"
+            },
+            {
+              "id": "use-industry-api",
+              "name": "useIndustryApi",
+              "value": "={{$json.body.useIndustryApi ?? true}}",
+              "type": "boolean"
+            },
+            {
+              "id": "use-web-search",
+              "name": "useWebSearch",
+              "value": "={{$json.body.useWebSearch ?? false}}",
+              "type": "boolean"
+            },
+            {
+              "id": "kb-id",
+              "name": "knowledgeBaseId",
+              "value": "={{$json.body.knowledgeBaseId || ''}}",
+              "type": "string"
+            },
+            {
+              "id": "max-sources",
+              "name": "maxSources",
+              "value": "={{$json.body.maxSources ?? 8}}",
+              "type": "number"
+            },
+            {
+              "id": "min-trusted",
+              "name": "minTrustedSources",
+              "value": "={{$json.body.minTrustedSources ?? 2}}",
+              "type": "number"
+            },
+            {
+              "id": "min-confidence",
+              "name": "minConfidence",
+              "value": "={{$json.body.minConfidence ?? 0.72}}",
+              "type": "number"
+            },
+            {
+              "id": "language",
+              "name": "responseLanguage",
+              "value": "={{$json.body.responseLanguage || 'zh-CN'}}",
+              "type": "string"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "validate-request",
+      "name": "Validate Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        760,
+        300
+      ],
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "const input = $input.first().json;\nconst errors = [];\nif (!input.query || String(input.query).trim().length < 8) {\n  errors.push('query must be at least 8 characters');\n}\nif (!input.reportType) {\n  errors.push('reportType is required');\n}\nif (!input.useKnowledgeBase && !input.useIndustryApi && !input.useWebSearch) {\n  errors.push('at least one source option must be enabled');\n}\nif (Number(input.maxSources) < 1 || Number(input.maxSources) > 20) {\n  errors.push('maxSources must be between 1 and 20');\n}\nif (Number(input.minConfidence) <= 0 || Number(input.minConfidence) > 1) {\n  errors.push('minConfidence must be greater than 0 and less than or equal to 1');\n}\nreturn [{\n  json: {\n    ...input,\n    isValid: errors.length === 0,\n    validationErrors: errors,\n    sourceMode: input.useKnowledgeBase && input.useIndustryApi ? 'hybrid' : input.useKnowledgeBase ? 'knowledge_base_only' : input.useIndustryApi ? 'industry_api_only' : 'web_search_only'\n  }\n}];"
+      }
+    },
+    {
+      "id": "is-request-valid",
+      "name": "Is Request Valid?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1020,
+        300
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "request-valid-condition",
+              "leftValue": "={{$json.isValid}}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "build-validation-error-response",
+      "name": "Build Validation Error Response",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1280,
+        460
+      ],
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "status",
+              "name": "status",
+              "value": "invalid_request",
+              "type": "string"
+            },
+            {
+              "id": "request-id",
+              "name": "requestId",
+              "value": "={{$('Validate Request').first().json.requestId}}",
+              "type": "string"
+            },
+            {
+              "id": "errors",
+              "name": "errors",
+              "value": "={{$('Validate Request').first().json.validationErrors}}",
+              "type": "array"
+            },
+            {
+              "id": "message",
+              "name": "message",
+              "value": "Please provide a clearer business question and at least one enabled data source.",
+              "type": "string"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "respond-validation-error",
+      "name": "Respond Validation Error",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1540,
+        460
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{$json}}",
+        "options": {
+          "responseCode": 400
+        }
+      }
+    },
+    {
+      "id": "retrieve-evidence-pack",
+      "name": "Retrieve Evidence Pack",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1280,
+        220
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{$env.KNOWLEDGE_ORCHESTRATOR_URL + '/retrieve'}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{$env.KNOWLEDGE_ORCHESTRATOR_TOKEN}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{({ query: $json.query, industry: $json.industry, geography: $json.geography, reportType: $json.reportType, responseLanguage: $json.responseLanguage, sourcePolicy: { mode: $json.sourceMode, knowledgeBase: { enabled: $json.useKnowledgeBase, knowledgeBaseId: $json.knowledgeBaseId || null }, industryApi: { enabled: $json.useIndustryApi }, webSearch: { enabled: $json.useWebSearch } }, qualityPolicy: { maxSources: $json.maxSources, minTrustedSources: $json.minTrustedSources, minConfidence: $json.minConfidence } })}}",
+        "options": {
+          "timeout": 30000
+        }
+      }
+    },
+    {
+      "id": "score-evidence",
+      "name": "Score Evidence",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1540,
+        220
+      ],
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "const request = $('Validate Request').first().json;\nconst payload = $input.first().json;\nconst sources = Array.isArray(payload.sources) ? payload.sources : [];\nconst trustedSources = sources.filter((source) => {\n  const tier = String(source.trustTier || '').toLowerCase();\n  return tier === 'high' || tier === 'trusted' || tier === 'official';\n});\nconst averageConfidence = sources.length\n  ? sources.reduce((sum, source) => sum + Number(source.confidence || 0), 0) / sources.length\n  : 0;\nconst enoughEvidence = trustedSources.length >= Number(request.minTrustedSources) && averageConfidence >= Number(request.minConfidence);\nreturn [{\n  json: {\n    requestId: request.requestId,\n    query: request.query,\n    industry: request.industry,\n    geography: request.geography,\n    reportType: request.reportType,\n    responseLanguage: request.responseLanguage,\n    sourceMode: request.sourceMode,\n    maxSources: request.maxSources,\n    minTrustedSources: request.minTrustedSources,\n    minConfidence: request.minConfidence,\n    enoughEvidence,\n    evidenceStats: {\n      totalSources: sources.length,\n      trustedSources: trustedSources.length,\n      averageConfidence: Number(averageConfidence.toFixed(4))\n    },\n    sources,\n    summary: payload.summary || '',\n    gaps: payload.gaps || []\n  }\n}];"
+      }
+    },
+    {
+      "id": "is-evidence-sufficient",
+      "name": "Is Evidence Sufficient?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1800,
+        220
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "evidence-sufficient-condition",
+              "leftValue": "={{$json.enoughEvidence}}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "build-low-confidence-response",
+      "name": "Build Low Confidence Response",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        2060,
+        380
+      ],
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "status",
+              "name": "status",
+              "value": "needs_human_review",
+              "type": "string"
+            },
+            {
+              "id": "request-id",
+              "name": "requestId",
+              "value": "={{$('Score Evidence').first().json.requestId}}",
+              "type": "string"
+            },
+            {
+              "id": "message",
+              "name": "message",
+              "value": "Evidence quality is below the configured threshold. Please review the source set or add trusted knowledge sources.",
+              "type": "string"
+            },
+            {
+              "id": "evidence-stats",
+              "name": "evidenceStats",
+              "value": "={{$('Score Evidence').first().json.evidenceStats}}",
+              "type": "object"
+            },
+            {
+              "id": "gaps",
+              "name": "gaps",
+              "value": "={{$('Score Evidence').first().json.gaps}}",
+              "type": "array"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "respond-low-confidence",
+      "name": "Respond Low Confidence",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        2320,
+        380
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{$json}}",
+        "options": {
+          "responseCode": 202
+        }
+      }
+    },
+    {
+      "id": "generate-advisory-report",
+      "name": "Generate Advisory Report",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2060,
+        120
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{$env.REPORT_LLM_URL}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{$env.REPORT_LLM_TOKEN}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{({ model: $env.REPORT_LLM_MODEL || 'report-analyst-model', input: [ { role: 'system', content: [ { type: 'input_text', text: 'You are a conservative business consulting analyst. Use only the supplied evidence. Never invent market numbers, company facts, or trends. If evidence is insufficient, say so clearly. Return structured JSON with sections: executive_summary, market_overview, opportunity_analysis, risk_analysis, recommendations, citations, limitations.' } ] }, { role: 'user', content: [ { type: 'input_text', text: `Question: ${$('Score Evidence').first().json.query}\\nIndustry: ${$('Score Evidence').first().json.industry}\\nGeography: ${$('Score Evidence').first().json.geography}\\nReport Type: ${$('Score Evidence').first().json.reportType}\\nResponse Language: ${$('Score Evidence').first().json.responseLanguage}\\nEvidence Summary: ${$('Score Evidence').first().json.summary}\\nEvidence Stats: ${JSON.stringify($('Score Evidence').first().json.evidenceStats)}\\nSources: ${JSON.stringify($('Score Evidence').first().json.sources)}\\nKnown Gaps: ${JSON.stringify($('Score Evidence').first().json.gaps)}` } ] } ], text: { format: { type: 'json_object' } } })}}",
+        "options": {
+          "timeout": 45000
+        }
+      }
+    },
+    {
+      "id": "finalize-response",
+      "name": "Finalize Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2320,
+        120
+      ],
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "const scored = $('Score Evidence').first().json;\nconst llmPayload = $input.first().json;\nconst content = Array.isArray(llmPayload.output)\n  ? llmPayload.output.flatMap((item) => item.content || [])\n  : [];\nconst textChunk = content.find((item) => item.type === 'output_text');\nlet report = {};\nif (textChunk?.text) {\n  try {\n    report = JSON.parse(textChunk.text);\n  } catch (error) {\n    report = { rawText: textChunk.text };\n  }\n}\nreturn [{\n  json: {\n    status: 'ok',\n    requestId: scored.requestId,\n    query: scored.query,\n    industry: scored.industry,\n    geography: scored.geography,\n    reportType: scored.reportType,\n    sourceMode: scored.sourceMode,\n    evidenceStats: scored.evidenceStats,\n    limitations: report.limitations || scored.gaps,\n    report,\n    citations: report.citations || scored.sources,\n    generatedAt: new Date().toISOString()\n  }\n}];"
+      }
+    },
+    {
+      "id": "respond-success",
+      "name": "Respond Success",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        2580,
+        120
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{$json}}",
+        "options": {
+          "responseCode": 200
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Webhook Intake": {
+      "main": [
+        [
+          {
+            "node": "Normalize Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Request": {
+      "main": [
+        [
+          {
+            "node": "Validate Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Request": {
+      "main": [
+        [
+          {
+            "node": "Is Request Valid?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Request Valid?": {
+      "main": [
+        [
+          {
+            "node": "Retrieve Evidence Pack",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Validation Error Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Validation Error Response": {
+      "main": [
+        [
+          {
+            "node": "Respond Validation Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Retrieve Evidence Pack": {
+      "main": [
+        [
+          {
+            "node": "Score Evidence",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Score Evidence": {
+      "main": [
+        [
+          {
+            "node": "Is Evidence Sufficient?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Evidence Sufficient?": {
+      "main": [
+        [
+          {
+            "node": "Generate Advisory Report",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Low Confidence Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Low Confidence Response": {
+      "main": [
+        [
+          {
+            "node": "Respond Low Confidence",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Advisory Report": {
+      "main": [
+        [
+          {
+            "node": "Finalize Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Finalize Response": {
+      "main": [
+        [
+          {
+            "node": "Respond Success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {}
+}

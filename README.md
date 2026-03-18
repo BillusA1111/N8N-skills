@@ -102,3 +102,8 @@ python .\scripts\validate_workflow.py .\your-workflow.json
 
 - 使用说明: [docs/usage-guide.zh-CN.md](./docs/usage-guide.zh-CN.md)
 - 技术白皮书: [docs/whitepaper.zh-CN.md](./docs/whitepaper.zh-CN.md)
+
+## 示例工作流
+
+- 商业顾问与行业分析报告示例: [examples/business-consultant-industry-report.json](./examples/business-consultant-industry-report.json)
+- 示例说明: [docs/business-consultant-example.zh-CN.md](./docs/business-consultant-example.zh-CN.md)
